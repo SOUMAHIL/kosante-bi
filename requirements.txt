@@ -1,0 +1,20 @@
+# KoSanté BI — Dépendances
+# Installer avec : pip install -r requirements.txt
+
+# Extraction Access
+access-parser==0.0.6
+
+# Data manipulation
+pandas==2.2.2
+numpy==1.26.4
+
+# Base de données
+duckdb==0.10.3
+
+# Dashboard
+streamlit==1.35.0
+plotly==5.22.0
+
+# Utilitaires
+python-dateutil==2.9.0
+openpyxl==3.1.2
