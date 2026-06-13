@@ -163,10 +163,10 @@ Double-clic sur lancer_dashboard.bat
 | Phase | Description | Statut |
 |-------|-------------|--------|
 | **Phase 1** | Setup · Extraction Access → CSV · Audit qualité | ✅ Terminée |
-| **Phase 2** | Transformation · Nettoyage · Schéma DuckDB | 🔄 En cours |
-| **Phase 3** | Calcul KPIs · Cascade 95-95-95 | ⏳ À venir |
-| **Phase 4** | Dashboard Streamlit | ⏳ À venir |
-| **Phase 5** | Rapport Power BI · Finalisation | ⏳ À venir |
+| **Phase 2** | Transformation · Nettoyage · Schéma DuckDB | ✅ Terminée |
+| **Phase 3** | Dashboard Streamlit | 🔄 En cours |
+| **Phase 4** | Rapport Power BI | ⏳ À venir |
+| **Phase 5** | Finalisation · Déploiement | ⏳ À venir |
 
 ---
 
@@ -205,11 +205,84 @@ Le registre CDV est anonyme — le lien `NumeroPrimoci` vers `TblDossPatient` n'
 
 ---
 
+
+---
+
+## 🔄 Phase 2 — Détail technique
+
+### Transformation (transform.py)
+
+Transformations appliquées sur les 7 tables :
+
+| Table | Transformations clés |
+|-------|---------------------|
+| TblDossPatient | Normalisation NumNational (5→4 chiffres) · TypePatient · NomCommunautaire · StatutPatient · Age |
+| TblMiseEnRoute | Gestion doublon → DateMiseTARV la plus récente |
+| TblChargesVirales | CV_Statut (Supprimée/Non supprimée) · StatutCV (Stable/Non Stable/NE) |
+| TblDossExamensBio | CD4_Dernier · CD4_Alerte (< 200) |
+| TblRegime | Normalisation NumPatient · DateProchainRdv · DatePDV · Actif_Pharmacie |
+| TblDossSuiviPatient | Détection VisiteDate · Derniere_Visite |
+| TblRegistreCDV | Resultat_label (stades 0-5) · Resultat_simple |
+
+### Décisions techniques Phase 2
+
+**Normalisation NumNational :**
+Depuis 2026, la clinique saisit les numéros nationaux sur 5 chiffres (`00132/...`)
+alors que SIGDEP pharmacie reste sur 4 chiffres (`0132/...`).
+On normalise les deux côtés au format 4 chiffres avant toute jointure.
+
+**Statut CV — 3 catégories :**
+- `Stable` → 2 dernières CV consécutives ≤ 1 000 copies/mL
+- `Non Stable` → 2 dernières CV consécutives > 1 000 copies/mL  
+- `NE` (Non Évalué) → moins de 2 CV disponibles
+
+**TypePatient — 2 catégories :**
+- `Nouveau Ko'Khoua` → NumNational commence par `0132/01/`
+- `Transfert In` → préfixe différent (vient d'un autre centre)
+
+### Chargement DuckDB (load.py)
+
+**Logique File Active Ko'Khoua :**
+```
+Un patient est ACTIF si :
+  ✅ Il a une dispensation ARV dans TblRegime
+  ✅ DatePDV (= DateRegime + JOURS + 28j) >= aujourd'hui
+  ✅ DecesDate IS NULL (pas décédé)
+  ✅ TransfDate IS NULL (pas transféré)
+  ✅ NumInc > 0
+```
+
+**Vues analytiques créées :**
+
+| Vue | Description |
+|-----|-------------|
+| `file_active` | Patients actifs selon logique Ko'Khoua |
+| `patients_rdv_manque` | Retard RDV 1-27 jours (toujours actifs) |
+| `perdus_de_vue` | ≥ 28 jours sans venir (hors file active) |
+| `kpis_file_active` | Tous les KPIs sur patients actifs uniquement |
+| `cascade_95_95_95` | 3 indicateurs ONUSIDA sur file active |
+
+### Résultats Phase 2 — Chiffres réels Ko'Khoua
+
+| Indicateur | Valeur | Objectif |
+|-----------|--------|----------|
+| File active | 2 443 patients | — |
+| Sous ARV | 2 442 (100.0%) | 95% ✅ |
+| CV supprimée | 2 331 / 2 429 (96.0%) | 95% ✅ |
+| CD4 moyen | 641 cellules/mm³ | — |
+| Patients stables | 2 276 (98.7%) | — |
+| Patients non stables | 29 (1.3%) | — |
+| Non évalués (NE) | 127 (5.2%) | — |
+| RDV manqués | 291 patients | — |
+| Perdus de vue | 588 patients | — |
+
+---
+
 ## 👤 Auteur
 
 **Konaté Soumahila** — Data & AI Engineer  
 📧 Konatesoumahila124@gmail.com  
-🔗 [LinkedIn](https://linkedin.com/in/konaté-soumahila)  
+🔗 [LinkedIn](https://www.linkedin.com/in/konate-soumahila-9a0461211/)  
 🐙 [GitHub](https://github.com/SOUMAHIL)  
 📍 Abidjan, Côte d'Ivoire
 
