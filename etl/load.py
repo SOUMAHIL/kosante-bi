@@ -178,23 +178,25 @@ def creer_vue_rdv_manque(conn) -> None:
     conn.execute("""
         CREATE VIEW patients_rdv_manque AS
         SELECT
-            NumInc,
-            NumNational,
-            Nom,
-            Prenoms,
-            NomCommunautaire,
-            DernierRegime,
-            DerniereDispensation,
-            DateProchainRdv,
-            DatePDV,
+            fa.NumInc,
+            fa.NumNational,
+            fa.Sexe_label,
+            fa.Age,
+            p.Tel,
+            fa.NomCommunautaire,
+            fa.DernierRegime,
+            fa.DerniereDispensation,
+            fa.DateProchainRdv,
+            fa.DatePDV,
             DATEDIFF('day',
-                CAST(DateProchainRdv AS DATE),
+                CAST(fa.DateProchainRdv AS DATE),
                 CURRENT_DATE
             ) AS jours_retard_rdv
-        FROM file_active
-        WHERE StatutFile = 'Actif'
-          AND CAST(DateProchainRdv AS DATE) < CURRENT_DATE
-          AND CAST(DatePDV AS DATE) >= CURRENT_DATE
+        FROM file_active fa
+        INNER JOIN TblDossPatient p ON fa.NumInc = p.NumInc
+        WHERE fa.StatutFile = 'Actif'
+          AND CAST(fa.DateProchainRdv AS DATE) < CURRENT_DATE
+          AND CAST(fa.DatePDV AS DATE) >= CURRENT_DATE
         ORDER BY jours_retard_rdv DESC
     """)
 
@@ -217,21 +219,23 @@ def creer_vue_perdus_de_vue(conn) -> None:
     conn.execute("""
         CREATE VIEW perdus_de_vue AS
         SELECT
-            NumInc,
-            NumNational,
-            Nom,
-            Prenoms,
-            NomCommunautaire,
-            DernierRegime,
-            DerniereDispensation,
-            DateProchainRdv,
-            DatePDV,
+            fa.NumInc,
+            fa.NumNational,
+            fa.Sexe_label,
+            fa.Age,
+            p.Tel,
+            fa.NomCommunautaire,
+            fa.DernierRegime,
+            fa.DerniereDispensation,
+            fa.DateProchainRdv,
+            fa.DatePDV,
             DATEDIFF('day',
-                CAST(DatePDV AS DATE),
+                CAST(fa.DatePDV AS DATE),
                 CURRENT_DATE
             ) AS jours_depuis_pdv
-        FROM file_active
-        WHERE StatutFile = 'Perdu de vue'
+        FROM file_active fa
+        INNER JOIN TblDossPatient p ON fa.NumInc = p.NumInc
+        WHERE fa.StatutFile = 'Perdu de vue'
         ORDER BY jours_depuis_pdv DESC
     """)
 
@@ -322,10 +326,29 @@ def creer_vue_kpis(conn) -> None:
             SELECT COUNT(*) AS nb_rdv_manque
             FROM patients_rdv_manque
         ),
-        -- Perdus de vue
-        pdv AS (
-            SELECT COUNT(*) AS nb_perdus_de_vue
-            FROM perdus_de_vue
+        -- Attrition (Perdus de vue + Transferts + Arrets vol. + Deces)
+        attr AS (
+            SELECT
+                COUNT(*) AS nb_attrition,
+                COUNT(*) FILTER (
+                    WHERE categorie_attrition = 'Perdu de vue'
+                ) AS nb_pdv,
+                COUNT(*) FILTER (
+                    WHERE categorie_attrition = 'Transfert'
+                ) AS nb_transfert,
+                COUNT(*) FILTER (
+                    WHERE categorie_attrition = 'Arrêt volontaire'
+                ) AS nb_arret_vol,
+                COUNT(*) FILTER (
+                    WHERE categorie_attrition = 'Décès'
+                ) AS nb_deces
+            FROM attrition
+            WHERE categorie_attrition IS NOT NULL
+        ),
+        -- A risque fin de mois
+        risque AS (
+            SELECT COUNT(*) AS nb_a_risque
+            FROM a_risque_fin_mois
         )
         SELECT
             -- File active
@@ -354,14 +377,240 @@ def creer_vue_kpis(conn) -> None:
 
             -- Alertes
             rm.nb_rdv_manque,
-            pdv.nb_perdus_de_vue
+
+            -- Attrition
+            attr.nb_attrition,
+            attr.nb_pdv,
+            attr.nb_transfert,
+            attr.nb_arret_vol,
+            attr.nb_deces,
+
+            -- A risque fin de mois
+            risque.nb_a_risque
 
         FROM nb_actifs na, cv_actifs ca, cd4_actifs cd,
              statut_cv_actifs sc, nouveaux_mois nm,
-             rdv_manques rm, pdv
+             rdv_manques rm, attr, risque
     """)
 
     log.info(f"  ✅ kpis_file_active créée")
+
+
+# =============================================================
+# VUE : attrition
+# =============================================================
+def creer_vue_attrition(conn) -> None:
+    """
+    Attrition = Perdus de vue + Transferts + Arrêts volontaires + Décès
+
+    Catégorisation TransfCentre (Transf = -1) :
+      - "ARRET VOLONTAIRE" / "REFUS" / contient "refuse" -> Arrêt volontaire
+      - "INJOIGNABLE"                                     -> PDV
+      - autre valeur (vrai nom de centre)                 -> Transfert réel
+
+    DECES = -1 -> Décédé
+    (Note : 1 seul DECES=1 isolé daté 2015, traité comme cas marginal,
+     non inclus dans la catégorie Décès car valeur non standard)
+    """
+    conn.execute("DROP VIEW IF EXISTS attrition")
+    conn.execute("""
+        CREATE VIEW attrition AS
+        WITH
+        base AS (
+            SELECT
+                p.NumInc,
+                p.NumNational,
+                p.Sexe_label,
+                p.Age,
+                p.Tel,
+                p.NomCommunautaire,
+                p.DECES,
+                p.DecesDate,
+                p.Transf,
+                p.TransfDate,
+                p.TransfCentre,
+                fa.DatePDV,
+                fa.DernierRegime,
+                fa.StatutFile
+            FROM TblDossPatient p
+            LEFT JOIN file_active fa ON p.NumInc = fa.NumInc
+        )
+        SELECT
+            NumInc, NumNational, Sexe_label, Age, Tel, NomCommunautaire,
+            DernierRegime,
+            CASE
+                WHEN DECES = -1 THEN 'Décès'
+                WHEN Transf = -1 AND (
+                        UPPER(TRIM(COALESCE(TransfCentre,''))) = 'ARRET VOLONTAIRE'
+                     OR UPPER(TRIM(COALESCE(TransfCentre,''))) = 'REFUS'
+                     OR UPPER(COALESCE(TransfCentre,'')) LIKE '%REFUSE%'
+                ) THEN 'Arrêt volontaire'
+                WHEN Transf = -1 AND
+                     UPPER(TRIM(COALESCE(TransfCentre,''))) = 'INJOIGNABLE'
+                    THEN 'Perdu de vue'
+                WHEN Transf = -1 THEN 'Transfert'
+                WHEN StatutFile = 'Perdu de vue' THEN 'Perdu de vue'
+                ELSE NULL
+            END AS categorie_attrition,
+            DecesDate,
+            TransfDate,
+            TransfCentre,
+            DatePDV
+        FROM base
+        WHERE
+            DECES = -1
+            OR (Transf = -1)
+            OR StatutFile = 'Perdu de vue'
+    """)
+
+    dist = conn.execute("""
+        SELECT categorie_attrition, COUNT(*) AS nb
+        FROM attrition
+        WHERE categorie_attrition IS NOT NULL
+        GROUP BY categorie_attrition
+        ORDER BY nb DESC
+    """).fetchall()
+
+    log.info(f"  ✅ attrition créée :")
+    for cat, nb in dist:
+        log.info(f"     {cat:<20} : {nb:,}")
+
+
+# =============================================================
+# VUE : a_risque_fin_mois
+# =============================================================
+def creer_vue_a_risque_fin_mois(conn) -> None:
+    """
+    Patients actifs dont DatePDV tombe avant la fin du mois en cours.
+    Si rien n'est fait, ils deviendront "perdus de vue" avant le
+    prochain rapport mensuel.
+    """
+    conn.execute("DROP VIEW IF EXISTS a_risque_fin_mois")
+    conn.execute("""
+        CREATE VIEW a_risque_fin_mois AS
+        SELECT
+            fa.NumInc,
+            fa.NumNational,
+            fa.Sexe_label,
+            fa.Age,
+            p.Tel,
+            fa.NomCommunautaire,
+            fa.DernierRegime,
+            fa.DateProchainRdv,
+            fa.DatePDV,
+            DATEDIFF('day', CAST(fa.DateProchainRdv AS DATE), CURRENT_DATE)
+                AS jours_retard_rdv
+        FROM file_active fa
+        INNER JOIN TblDossPatient p ON fa.NumInc = p.NumInc
+        WHERE fa.StatutFile = 'Actif'
+          AND CAST(fa.DatePDV AS DATE) <=
+              LAST_DAY(CURRENT_DATE)
+        ORDER BY fa.DatePDV ASC
+    """)
+
+    nb = conn.execute("SELECT COUNT(*) FROM a_risque_fin_mois").fetchone()[0]
+    log.info(f"  ✅ a_risque_fin_mois : {nb:,} patients à risque ce mois")
+
+
+# =============================================================
+# VUE : patients_non_stables / patients_non_evalues
+# =============================================================
+def creer_vues_statut_cv_listings(conn) -> None:
+    """
+    Listings détaillés des patients Non Stables et Non Évalués (NE)
+    parmi la file active — avec les 2 dernières valeurs de CV.
+    """
+    # --- Non Stables ---
+    conn.execute("DROP VIEW IF EXISTS patients_non_stables")
+    conn.execute("""
+        CREATE VIEW patients_non_stables AS
+        WITH cv_rank AS (
+            SELECT
+                Patient AS NumInc,
+                CVcopies,
+                DatePrelev,
+                ROW_NUMBER() OVER (
+                    PARTITION BY Patient ORDER BY DatePrelev DESC
+                ) AS rang
+            FROM TblChargesVirales
+            WHERE CVcopies IS NOT NULL
+        )
+        SELECT
+            fa.NumInc, fa.NumNational, fa.Sexe_label, fa.Age,
+            p.Tel, fa.NomCommunautaire, fa.DernierRegime,
+            c1.CVcopies  AS derniere_cv,
+            c1.DatePrelev AS date_derniere_cv,
+            c2.CVcopies  AS avant_derniere_cv,
+            c2.DatePrelev AS date_avant_derniere_cv
+        FROM file_active fa
+        INNER JOIN TblDossPatient p ON fa.NumInc = p.NumInc
+        INNER JOIN StatutCV_Patient sc ON fa.NumInc = sc.NumInc
+        LEFT JOIN cv_rank c1 ON fa.NumInc = c1.NumInc AND c1.rang = 1
+        LEFT JOIN cv_rank c2 ON fa.NumInc = c2.NumInc AND c2.rang = 2
+        WHERE fa.StatutFile = 'Actif'
+          AND sc.StatutCV = 'Non Stable'
+        ORDER BY c1.DatePrelev DESC
+    """)
+
+    nb = conn.execute("SELECT COUNT(*) FROM patients_non_stables").fetchone()[0]
+    log.info(f"  ✅ patients_non_stables : {nb:,} patients")
+
+    # --- Non Évalués (NE) ---
+    conn.execute("DROP VIEW IF EXISTS patients_non_evalues")
+    conn.execute("""
+        CREATE VIEW patients_non_evalues AS
+        WITH cv_count AS (
+            SELECT
+                Patient AS NumInc,
+                COUNT(*) AS nb_cv,
+                MAX(DatePrelev) AS derniere_date_cv
+            FROM TblChargesVirales
+            WHERE CVcopies IS NOT NULL
+            GROUP BY Patient
+        )
+        SELECT
+            fa.NumInc, fa.NumNational, fa.Sexe_label, fa.Age,
+            p.Tel, fa.NomCommunautaire, fa.DernierRegime,
+            COALESCE(cc.nb_cv, 0) AS nb_cv_disponibles,
+            cc.derniere_date_cv
+        FROM file_active fa
+        INNER JOIN TblDossPatient p ON fa.NumInc = p.NumInc
+        INNER JOIN StatutCV_Patient sc ON fa.NumInc = sc.NumInc
+        LEFT JOIN cv_count cc ON fa.NumInc = cc.NumInc
+        WHERE fa.StatutFile = 'Actif'
+          AND sc.StatutCV = 'NE'
+        ORDER BY cc.derniere_date_cv DESC NULLS LAST
+    """)
+
+    nb2 = conn.execute("SELECT COUNT(*) FROM patients_non_evalues").fetchone()[0]
+    log.info(f"  ✅ patients_non_evalues : {nb2:,} patients")
+
+
+# =============================================================
+# VUE : perdus_de_vue_periode (3 et 6 mois)
+# =============================================================
+def creer_vue_pdv_periode(conn) -> None:
+    """
+    Perdus de vue récents — avec colonne jours_depuis_pdv
+    pour filtrage 3/6 mois côté dashboard.
+    Inclut les PDV "INJOIGNABLE" depuis attrition.
+    """
+    conn.execute("DROP VIEW IF EXISTS pdv_listing")
+    conn.execute("""
+        CREATE VIEW pdv_listing AS
+        SELECT
+            NumInc, NumNational, Sexe_label, Age, Tel, NomCommunautaire,
+            DernierRegime, DatePDV,
+            DATEDIFF('day', CAST(DatePDV AS DATE), CURRENT_DATE)
+                AS jours_depuis_pdv
+        FROM attrition
+        WHERE categorie_attrition = 'Perdu de vue'
+          AND DatePDV IS NOT NULL
+        ORDER BY jours_depuis_pdv ASC
+    """)
+
+    nb = conn.execute("SELECT COUNT(*) FROM pdv_listing").fetchone()[0]
+    log.info(f"  ✅ pdv_listing : {nb:,} patients perdus de vue")
 
 
 # =============================================================
@@ -370,47 +619,104 @@ def creer_vue_kpis(conn) -> None:
 def creer_vue_cascade(conn) -> None:
     """
     Cascade 95-95-95 ONUSIDA — standard Côte d'Ivoire
-    Calculée sur la file active Ko'Khoua
+
+    ① 1er 95 : Dépistés positifs connus (TblRegistreCDV)
+    ② 2ème 95 : Taux de rétention ARV par année de mise sous ARV
+               = patients encore actifs / total mis sous ARV cette année
+    ③ 3ème 95 : CV supprimée parmi les actifs évalués
     """
     conn.execute("DROP VIEW IF EXISTS cascade_95_95_95")
     conn.execute("""
         CREATE VIEW cascade_95_95_95 AS
         WITH
-        actifs AS (
-            SELECT NumInc FROM file_active WHERE StatutFile = 'Actif'
-        ),
-        etape1 AS (
-            -- 1er 95 : Patients actifs connus et suivis
-            SELECT COUNT(*) AS nb FROM actifs
-        ),
-        etape2 AS (
-            -- 2ème 95 : Actifs avec mise sous ARV
-            SELECT COUNT(DISTINCT a.NumInc) AS nb
-            FROM actifs a
-            INNER JOIN TblMiseEnRoute m ON a.NumInc = m.Patient
-            WHERE m.DateMiseTARV IS NOT NULL
-        ),
-        etape3 AS (
-            -- 3ème 95 : CV supprimée parmi les actifs évalués
+        -- ① 1er 95 : Dépistés positifs CDV
+        depistage AS (
             SELECT
-                COUNT(*) FILTER (WHERE cv.CV_Statut = 'Supprimée') AS nb_supprimee,
-                COUNT(*) FILTER (WHERE cv.CV_Statut != 'Non renseigné') AS nb_evalue
+                COUNT(*) AS nb_tests,
+                COUNT(*) FILTER (
+                    WHERE Resultat_simple = 'Positif'
+                ) AS nb_positifs,
+                ROUND(
+                    COUNT(*) FILTER (WHERE Resultat_simple = 'Positif')
+                    * 100.0 /
+                    NULLIF(COUNT(*) FILTER (
+                        WHERE Resultat_simple IN ('Positif','Négatif')
+                    ), 0), 1
+                ) AS taux_positivite
+            FROM TblRegistreCDV
+        ),
+        -- ② 2ème 95 : Rétention ARV (patients mis sous ARV encore actifs)
+        retention AS (
+            SELECT
+                EXTRACT(YEAR FROM CAST(m.DateMiseTARV AS DATE))::INTEGER AS annee,
+                COUNT(DISTINCT m.Patient) AS nb_mis_sous_arv,
+                COUNT(DISTINCT fa.NumInc) AS nb_encore_actifs,
+                ROUND(
+                    COUNT(DISTINCT fa.NumInc) * 100.0 /
+                    NULLIF(COUNT(DISTINCT m.Patient), 0), 1
+                ) AS taux_retention
+            FROM TblMiseEnRoute m
+            LEFT JOIN file_active fa
+                ON m.Patient = fa.NumInc
+                AND fa.StatutFile = 'Actif'
+            WHERE m.DateMiseTARV IS NOT NULL
+            GROUP BY annee
+            ORDER BY annee DESC
+        ),
+        -- ③ 3ème 95 : CV supprimée parmi actifs évalués
+        cv AS (
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE cv.CV_Statut = 'Supprimée'
+                ) AS nb_supprimee,
+                COUNT(*) FILTER (
+                    WHERE cv.CV_Statut != 'Non renseigné'
+                ) AS nb_evalue,
+                ROUND(
+                    COUNT(*) FILTER (WHERE cv.CV_Statut = 'Supprimée')
+                    * 100.0 /
+                    NULLIF(COUNT(*) FILTER (
+                        WHERE cv.CV_Statut != 'Non renseigné'
+                    ), 0), 1
+                ) AS pct_cv_supprimee
             FROM TblChargesVirales cv
-            INNER JOIN actifs a ON cv.Patient = a.NumInc
-            WHERE cv.CV_Derniere = TRUE
+            INNER JOIN file_active fa ON cv.Patient = fa.NumInc
+            WHERE fa.StatutFile = 'Actif'
+              AND cv.CV_Derniere = TRUE
         )
         SELECT
-            e1.nb                                              AS actifs_connus,
-            e2.nb                                             AS sous_arv,
-            ROUND(e2.nb * 100.0 / NULLIF(e1.nb, 0), 1)      AS pct_sous_arv,
-            e3.nb_supprimee                                   AS cv_supprimee,
-            e3.nb_evalue                                      AS cv_evalue,
-            ROUND(e3.nb_supprimee * 100.0 /
-                NULLIF(e3.nb_evalue, 0), 1)                  AS pct_cv_supprimee,
-            95.0                                              AS objectif_pct
-        FROM etape1 e1, etape2 e2, etape3 e3
+            d.nb_tests,
+            d.nb_positifs,
+            d.taux_positivite,
+            cv.nb_supprimee,
+            cv.nb_evalue,
+            cv.pct_cv_supprimee,
+            95.0 AS objectif_pct
+        FROM depistage d, cv
     """)
-    log.info(f"  ✅ cascade_95_95_95 créée")
+
+    # Vue séparée pour la rétention par année
+    conn.execute("DROP VIEW IF EXISTS vue_retention_arv")
+    conn.execute("""
+        CREATE VIEW vue_retention_arv AS
+        SELECT
+            EXTRACT(YEAR FROM CAST(m.DateMiseTARV AS DATE))::INTEGER AS annee,
+            COUNT(DISTINCT m.Patient)  AS nb_mis_sous_arv,
+            COUNT(DISTINCT fa.NumInc)  AS nb_encore_actifs,
+            ROUND(
+                COUNT(DISTINCT fa.NumInc) * 100.0 /
+                NULLIF(COUNT(DISTINCT m.Patient), 0), 1
+            ) AS taux_retention
+        FROM TblMiseEnRoute m
+        LEFT JOIN file_active fa
+            ON m.Patient = fa.NumInc
+            AND fa.StatutFile = 'Actif'
+        WHERE m.DateMiseTARV IS NOT NULL
+        GROUP BY annee
+        ORDER BY annee DESC
+    """)
+    log.info(f"  ✅ cascade_95_95_95 créée (nouvelle logique)")
+    log.info(f"  ✅ vue_retention_arv créée")
 
 
 # =============================================================
@@ -444,7 +750,13 @@ def valider_base(conn) -> None:
             log.info(f"  Nouveaux Ko'Khoua/mois : {kpi[10]:,}")
             log.info(f"  Transferts In/mois     : {kpi[11]:,}")
             log.info(f"  RDV manqués            : {kpi[12]:,}")
-            log.info(f"  Perdus de vue          : {kpi[13]:,}")
+            log.info(f"\n  ── ATTRITION ──────────────────")
+            log.info(f"  Attrition totale       : {kpi[13]:,}")
+            log.info(f"    Perdus de vue        : {kpi[14]:,}")
+            log.info(f"    Transferts           : {kpi[15]:,}")
+            log.info(f"    Arrets volontaires   : {kpi[16]:,}")
+            log.info(f"    Deces                : {kpi[17]:,}")
+            log.info(f"\n  À risque fin de mois   : {kpi[18]:,}")
     except Exception as e:
         log.warning(f"  ⚠️  KPIs : {e}")
 
@@ -453,9 +765,18 @@ def valider_base(conn) -> None:
     try:
         c = conn.execute("SELECT * FROM cascade_95_95_95").fetchone()
         if c:
-            log.info(f"  ① Actifs connus        : {c[0]:,}")
-            log.info(f"  ② Sous ARV             : {c[1]:,} ({c[2]}%) | objectif 95%")
+            log.info(f"  ① Tests CDV            : {c[0]:,} | Positifs : {c[1]:,} ({c[2]}%)")
             log.info(f"  ③ CV supprimée         : {c[3]:,} / {c[4]:,} ({c[5]}%) | objectif 95%")
+
+        # Rétention ARV — 3 dernières années
+        log.info("\n  ── RÉTENTION ARV ──────────────────────────")
+        retention = conn.execute("""
+            SELECT annee, nb_mis_sous_arv, nb_encore_actifs, taux_retention
+            FROM vue_retention_arv
+            LIMIT 5
+        """).fetchall()
+        for r in retention:
+            log.info(f"  {r[0]} : {r[1]:,} mis sous ARV → {r[2]:,} encore actifs ({r[3]}%)")
     except Exception as e:
         log.warning(f"  ⚠️  Cascade : {e}")
 
@@ -495,6 +816,10 @@ def charger_dans_duckdb() -> None:
     creer_vue_file_active(conn)
     creer_vue_rdv_manque(conn)
     creer_vue_perdus_de_vue(conn)
+    creer_vue_attrition(conn)
+    creer_vue_a_risque_fin_mois(conn)
+    creer_vues_statut_cv_listings(conn)
+    creer_vue_pdv_periode(conn)
     creer_vue_kpis(conn)
     creer_vue_cascade(conn)
 

@@ -40,7 +40,7 @@ CMSDSdata.mdb (Clinique)     SIGDEP.mdb (Pharmacie)
 
 | Couche | Technologie |
 |--------|-------------|
-| Extraction | Python · pyodbc · access-parser |
+| Extraction | Python · pyodbc |
 | Transformation | Python · Pandas · NumPy |
 | Stockage | DuckDB (fichier local) |
 | Dashboard | Streamlit · Plotly |
@@ -52,12 +52,9 @@ CMSDSdata.mdb (Clinique)     SIGDEP.mdb (Pharmacie)
 
 | # | Indicateur | Source | Règle métier |
 |---|-----------|--------|--------------|
-| 1 | Nombre de dépistages & taux positivité | TblRegistreCDV | Actes CDV réalisés |
-| 2 | File active PVVIH | TblDossPatient | Patients sans décès ni transfert |
-| 3 | Taux de mise sous ARV | TblMiseEnRoute | Patients avec DateMiseTARV |
-| 4 | Charge virale supprimée | TblChargesVirales | CVcopies ≤ 1 000 copies/mL |
-| 5 | CD4 moyen | TblDossExamensBio | Dernière valeur CD4Nb par patient |
-| 6 | Perdus de vue | TblDossSuiviPatient + TblRegime | RDV raté ≥ 28 jours |
+| ① | Dépistés positifs connus | TblRegistreCDV | Actes CDV positifs |
+| ② | Taux de rétention ARV | TblMiseEnRoute + file_active | Patients encore actifs / mis sous ARV par cohorte |
+| ③ | Charge virale supprimée | TblChargesVirales | CVcopies ≤ 1 000 copies/mL parmi actifs évalués |
 
 ---
 
@@ -94,8 +91,7 @@ TblDossPatient.NumInc      ←→  TblDossSuiviPatient.Patient (jointure cliniqu
 TblDossPatient.NumNational ←→  TblRegime.NumPatient        (92.6% match)
 ```
 
-> **Note** : `TblRegistreCDV` est une table indépendante (registre anonyme de dépistage).  
-> Le lien avec `TblDossPatient` via `NumeroPrimoci` n'est plus renseigné depuis 2017.  
+> **Note** : `TblRegistreCDV` est une table indépendante (registre anonyme de dépistage).
 > Les KPIs de dépistage sont calculés indépendamment — conformément aux pratiques PNLS CI.
 
 ---
@@ -114,11 +110,18 @@ kosante-bi/
 │   ├── extract.py              ← Extraction Access → CSV
 │   ├── audit_qualite.py        ← Contrôle qualité des données
 │   ├── transform.py            ← Nettoyage & transformation
-│   └── load.py                 ← Chargement DuckDB
+│   └── load.py                 ← Chargement DuckDB + vues analytiques
 ├── dashboard/
-│   └── app.py                  ← Dashboard Streamlit
-├── powerbi/
-│   └── kosante.pbix            ← Rapport Power BI
+│   ├── app.py                  ← Point d'entrée Streamlit
+│   └── views/
+│       ├── vue_ensemble.py     ← 01 · Vue d'ensemble
+│       ├── depistage.py        ← 02 · Dépistage CDV
+│       ├── file_active.py      ← 03 · Fichier actif
+│       ├── performances.py     ← 04 · Performances cliniques
+│       ├── attrition.py        ← 05 · Attrition
+│       └── listing.py          ← 06 · Listing & Export
+├── DECISIONS.md                ← Journal des décisions techniques
+├── DICTIONNAIRE_DONNEES.md     ← Référentiel tables et KPIs
 ├── lancer_dashboard.bat        ← Lancement en 1 clic
 ├── requirements.txt
 ├── config.py                   ← Configuration centrale
@@ -131,7 +134,7 @@ kosante-bi/
 
 ### Prérequis
 - Python 3.10+
-- Microsoft Access Database Engine (driver ODBC)
+- Microsoft Access Database Engine (driver ODBC 32 ou 64 bits)
 - Les fichiers `.mdb` dans le dossier `data/`
 
 ### Installation
@@ -144,10 +147,15 @@ cd kosante-bi
 # 2. Installer les dépendances
 pip install -r requirements.txt
 
-# 3. Lancer l'extraction
-python etl/extract.py
+# 3. Configurer les chemins dans config.py
+# (adapter DB_CLINIQUE et DB_PHARMACIE à votre machine)
 
-# 4. Lancer le dashboard
+# 4. Lancer le pipeline ETL complet
+python etl/extract.py
+python etl/transform.py
+python etl/load.py
+
+# 5. Lancer le dashboard
 streamlit run dashboard/app.py
 ```
 
@@ -164,7 +172,7 @@ Double-clic sur lancer_dashboard.bat
 |-------|-------------|--------|
 | **Phase 1** | Setup · Extraction Access → CSV · Audit qualité | ✅ Terminée |
 | **Phase 2** | Transformation · Nettoyage · Schéma DuckDB | ✅ Terminée |
-| **Phase 3** | Dashboard Streamlit | 🔄 En cours |
+| **Phase 3** | Dashboard Streamlit · 6 menus · Listings | ✅ Terminée |
 | **Phase 4** | Rapport Power BI | ⏳ À venir |
 | **Phase 5** | Finalisation · Déploiement | ⏳ À venir |
 
@@ -181,30 +189,13 @@ Double-clic sur lancer_dashboard.bat
 
 ### Audit qualité (audit_qualite.py)
 
-Contrôles effectués :
-
 | Contrôle | Résultat |
 |----------|----------|
 | Doublons TblDossPatient | ✅ 0 doublon sur NumInc |
 | Doublons TblMiseEnRoute | ⚠️ 1 doublon → garder dernière DateMiseTARV |
 | Jointures clinique (NumInc) | ✅ 99.9% de match |
-| Jointure inter-bases (NumNational) | ✅ 92.6% de match (316 patients pharmacie sans dossier clinique) |
-| Dates aberrantes | ⚠️ Quelques DateNaiss avant 1980 et futures → filtrées en Phase 2 |
-| Colonnes 100% nulles | ℹ️ Nombreuses colonnes non renseignées → ignorées |
-
-### Décisions techniques documentées
-
-**Pourquoi DuckDB ?**  
-DuckDB est un moteur analytique embarqué (fichier `.duckdb`) — zéro installation serveur, performances excellentes sur des agrégats analytiques, compatible Python et Power BI via ODBC.
-
-**Pourquoi `NumInc` et non `Code` comme clé clinique ?**  
-Après inspection des données réelles, `NumInc` est l'identifiant opérationnel utilisé dans toutes les tables de suivi. `Code` est un identifiant Access interne non cohérent entre tables.
-
-**Pourquoi TblRegistreCDV est indépendante ?**  
-Le registre CDV est anonyme — le lien `NumeroPrimoci` vers `TblDossPatient` n'est plus renseigné depuis 2017. Traitement en flux agrégé indépendant, conforme aux pratiques PNLS Côte d'Ivoire.
-
----
-
+| Jointure inter-bases (NumNational) | ✅ 92.6% de match |
+| Dates aberrantes | ⚠️ Filtrées en Phase 2 |
 
 ---
 
@@ -212,78 +203,101 @@ Le registre CDV est anonyme — le lien `NumeroPrimoci` vers `TblDossPatient` n'
 
 ### Transformation (transform.py)
 
-Transformations appliquées sur les 7 tables :
-
 | Table | Transformations clés |
 |-------|---------------------|
-| TblDossPatient | Normalisation NumNational (5→4 chiffres) · TypePatient · NomCommunautaire · StatutPatient · Age |
+| TblDossPatient | Normalisation NumNational (5→4 chiffres) · TypePatient · NomCommunautaire · Age |
 | TblMiseEnRoute | Gestion doublon → DateMiseTARV la plus récente |
-| TblChargesVirales | CV_Statut (Supprimée/Non supprimée) · StatutCV (Stable/Non Stable/NE) |
+| TblChargesVirales | CV_Statut · StatutCV (Stable/Non Stable/NE) |
 | TblDossExamensBio | CD4_Dernier · CD4_Alerte (< 200) |
 | TblRegime | Normalisation NumPatient · DateProchainRdv · DatePDV · Actif_Pharmacie |
 | TblDossSuiviPatient | Détection VisiteDate · Derniere_Visite |
 | TblRegistreCDV | Resultat_label (stades 0-5) · Resultat_simple |
 
-### Décisions techniques Phase 2
+### Logique File Active Ko'Khoua
 
-**Normalisation NumNational :**
-Depuis 2026, la clinique saisit les numéros nationaux sur 5 chiffres (`00132/...`)
-alors que SIGDEP pharmacie reste sur 4 chiffres (`0132/...`).
-On normalise les deux côtés au format 4 chiffres avant toute jointure.
-
-**Statut CV — 3 catégories :**
-- `Stable` → 2 dernières CV consécutives ≤ 1 000 copies/mL
-- `Non Stable` → 2 dernières CV consécutives > 1 000 copies/mL  
-- `NE` (Non Évalué) → moins de 2 CV disponibles
-
-**TypePatient — 2 catégories :**
-- `Nouveau Ko'Khoua` → NumNational commence par `0132/01/`
-- `Transfert In` → préfixe différent (vient d'un autre centre)
-
-### Chargement DuckDB (load.py)
-
-**Logique File Active Ko'Khoua :**
 ```
 Un patient est ACTIF si :
-  ✅ Il a une dispensation ARV dans TblRegime
-  ✅ DatePDV (= DateRegime + JOURS + 28j) >= aujourd'hui
-  ✅ DecesDate IS NULL (pas décédé)
-  ✅ TransfDate IS NULL (pas transféré)
+  ✅ Il a une dispensation ARV dans TblRegime (REGIME IS NOT NULL)
+  ✅ DatePDV = DateRegime + JOURS + 28 jours >= aujourd'hui
+  ✅ DECES = -1 → exclu (décédé)
+  ✅ Transf = -1 → exclu (transféré ou arrêt volontaire)
   ✅ NumInc > 0
 ```
 
-**Vues analytiques créées :**
+### Vues analytiques DuckDB
 
 | Vue | Description |
 |-----|-------------|
 | `file_active` | Patients actifs selon logique Ko'Khoua |
-| `patients_rdv_manque` | Retard RDV 1-27 jours (toujours actifs) |
-| `perdus_de_vue` | ≥ 28 jours sans venir (hors file active) |
-| `kpis_file_active` | Tous les KPIs sur patients actifs uniquement |
-| `cascade_95_95_95` | 3 indicateurs ONUSIDA sur file active |
+| `patients_rdv_manque` | Retard RDV 1-27 jours (anonymisés) |
+| `perdus_de_vue` | ≥ 28 jours sans venir |
+| `attrition` | PDV + Transferts + Arrêts volontaires + Décès |
+| `a_risque_fin_mois` | Actifs dont DatePDV ≤ fin du mois en cours |
+| `patients_non_stables` | 2 CV consécutives > 1 000 copies/mL |
+| `patients_non_evalues` | Moins de 2 CV disponibles (NE) |
+| `pdv_listing` | PDV récents avec jours_depuis_pdv |
+| `kpis_file_active` | Tous les KPIs agrégés |
+| `cascade_95_95_95` | Indicateurs ONUSIDA |
+| `vue_retention_arv` | Taux de rétention par cohorte annuelle |
 
 ### Résultats Phase 2 — Chiffres réels Ko'Khoua
 
 | Indicateur | Valeur | Objectif |
 |-----------|--------|----------|
-| File active | 2 443 patients | — |
-| Sous ARV | 2 442 (100.0%) | 95% ✅ |
-| CV supprimée | 2 331 / 2 429 (96.0%) | 95% ✅ |
-| CD4 moyen | 641 cellules/mm³ | — |
-| Patients stables | 2 276 (98.7%) | — |
-| Patients non stables | 29 (1.3%) | — |
-| Non évalués (NE) | 127 (5.2%) | — |
-| RDV manqués | 291 patients | — |
-| Perdus de vue | 588 patients | — |
+| File active | 2 426 patients | — |
+| CV supprimée | 96.0% (2 315 / 2 412) | 95% ✅ |
+| Patients stables | 98.7% | — |
+| Patients non stables | 29 | — |
+| Non évalués (NE) | 127 | — |
+| RDV manqués | 329 patients | — |
+| À risque fin de mois | 134 patients | — |
+| Attrition totale | 2 405 | — |
+| → Perdus de vue | 602 | — |
+| → Transferts | 949 | — |
+| → Arrêts volontaires | 45 | — |
+| → Décès | 813 | — |
+
+---
+
+## 📊 Phase 3 — Dashboard Streamlit
+
+### 6 menus disponibles
+
+| Menu | Contenu |
+|------|---------|
+| **01 · Vue d'ensemble** | KPIs clés · Cascade 95-95-95 · Attrition · Évolution 3 ans |
+| **02 · Dépistage CDV** | Tests · Positifs · Taux positivité · Filtre année · Tranches d'âge |
+| **03 · Fichier actif** | Par communautaire · Régimes ARV · PDV fin de mois · RDV manqués |
+| **04 · Performances cliniques** | Statut CV · Évolution CV 6 mois · Non Stables · NE |
+| **05 · Attrition** | Filtre période · Répartition · Rétention ARV 6 cohortes · PDV listing |
+| **06 · Listing** | Export CSV/Excel · RDV ARV par mois (4 mois à venir) · 5 listings anonymisés |
+
+### Règles de confidentialité appliquées
+
+Aucune liste n'affiche les noms ou prénoms des patients. Le socle commun de toutes les listes :
+
+```
+N° Local | N° National | Sexe | Âge | Téléphone | Communautaire | Régime ARV
+```
+
+### Logique Attrition
+
+```
+Attrition = Perdus de vue
+          + Transferts réels      (Transf=-1, TransfCentre ≠ mots-clés arrêt)
+          + Arrêts volontaires    (TransfCentre = "ARRET VOLONTAIRE" / "REFUS" / "refuse")
+          + INJOIGNABLE           → comptés dans PDV
+          + Décès                 (DECES=-1)
+```
 
 ---
 
 ## 👤 Auteur
 
-**Konaté Soumahila** — Data & AI Engineer  
-📧 Konatesoumahila124@gmail.com  
-🔗 [LinkedIn](https://www.linkedin.com/in/konate-soumahila-9a0461211/)  
-🐙 [GitHub](https://github.com/SOUMAHIL)  
+**Konaté Soumahila** — Data & AI Engineer
+📧 Konatesoumahila124@gmail.com
+🔗 [LinkedIn](https://www.linkedin.com/in/konate-soumahila-9a0461211/)
+🐙 [GitHub](https://github.com/SOUMAHIL)
 📍 Abidjan, Côte d'Ivoire
 
 ---
