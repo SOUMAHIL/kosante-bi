@@ -30,10 +30,8 @@ CMSDSdata.mdb (Clinique)     SIGDEP.mdb (Pharmacie)
                    │
             [DuckDB — kosante.duckdb]
                    │
-        ┌──────────┴──────────┐
-        │                     │
-  [Streamlit]            [Power BI]
-  Dashboard quotidien    Rapport direction
+            [Streamlit]
+            Dashboard quotidien
 ```
 
 ### Stack technologique
@@ -44,7 +42,6 @@ CMSDSdata.mdb (Clinique)     SIGDEP.mdb (Pharmacie)
 | Transformation | Python · Pandas · NumPy |
 | Stockage | DuckDB (fichier local) |
 | Dashboard | Streamlit · Plotly |
-| Rapport | Power BI Desktop |
 
 ---
 
@@ -173,8 +170,7 @@ Double-clic sur lancer_dashboard.bat
 | **Phase 1** | Setup · Extraction Access → CSV · Audit qualité | ✅ Terminée |
 | **Phase 2** | Transformation · Nettoyage · Schéma DuckDB | ✅ Terminée |
 | **Phase 3** | Dashboard Streamlit · 6 menus · Listings | ✅ Terminée |
-| **Phase 4** | Rapport Power BI | ⏳ À venir |
-| **Phase 5** | Finalisation · Déploiement | ⏳ À venir |
+| **Phase 4** | Finalisation · Déploiement | ⏳ À venir |
 
 ---
 
