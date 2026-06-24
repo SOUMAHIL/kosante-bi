@@ -8,7 +8,7 @@
 
 ## 📋 Contexte
 
-[Ko'Khoua](https://www.kokhoua.org) est une ONG ivoirienne spécialisée dans la prise en charge des **Personnes Vivant avec le VIH/SIDA (PVVIH)** à Abidjan, Côte d'Ivoire. Active depuis 1992, elle gère plus de **6 000 dossiers patients** et assure le suivi médical, le traitement ARV et le conseil-dépistage.
+Une ONG ivoirienne spécialisée dans la prise en charge des **Personnes Vivant avec le VIH/SIDA (PVVIH)** à Abidjan, Côte d'Ivoire, active depuis plus de 30 ans, gère plus de **6 000 dossiers patients** et assure le suivi médical, le traitement ARV et le conseil-dépistage.
 
 ### Problème résolu
 
@@ -209,7 +209,7 @@ Double-clic sur lancer_dashboard.bat
 | TblDossSuiviPatient | Détection VisiteDate · Derniere_Visite |
 | TblRegistreCDV | Resultat_label (stades 0-5) · Resultat_simple |
 
-### Logique File Active Ko'Khoua
+### Logique File Active
 
 ```
 Un patient est ACTIF si :
@@ -224,7 +224,7 @@ Un patient est ACTIF si :
 
 | Vue | Description |
 |-----|-------------|
-| `file_active` | Patients actifs selon logique Ko'Khoua |
+| `file_active` | Patients actifs selon logique métier |
 | `patients_rdv_manque` | Retard RDV 1-27 jours (anonymisés) |
 | `perdus_de_vue` | ≥ 28 jours sans venir |
 | `attrition` | PDV + Transferts + Arrêts volontaires + Décès |
@@ -235,23 +235,24 @@ Un patient est ACTIF si :
 | `kpis_file_active` | Tous les KPIs agrégés |
 | `cascade_95_95_95` | Indicateurs ONUSIDA |
 | `vue_retention_arv` | Taux de rétention par cohorte annuelle |
+| `vue_prochaine_cv` | Prochaine date CV par patient selon protocole |
 
-### Résultats Phase 2 — Chiffres réels Ko'Khoua
+### Résultats obtenus — Données réelles anonymisées
 
 | Indicateur | Valeur | Objectif |
 |-----------|--------|----------|
-| File active | 2 426 patients | — |
-| CV supprimée | 96.0% (2 315 / 2 412) | 95% ✅ |
-| Patients stables | 98.7% | — |
-| Patients non stables | 29 | — |
-| Non évalués (NE) | 127 | — |
-| RDV manqués | 329 patients | — |
-| À risque fin de mois | 134 patients | — |
-| Attrition totale | 2 405 | — |
-| → Perdus de vue | 602 | — |
+| File active | 2 448 patients | — |
+| CV supprimée | 95.7% (2 330 / 2 435) | 95% ✅ |
+| Patients stables | 98.6% | — |
+| Patients non stables | 32 | — |
+| Non évalués (NE) | 137 | — |
+| RDV manqués | 270 patients | — |
+| À risque fin de mois | 30 patients | — |
+| Attrition totale | 2 385 | — |
+| → Perdus de vue | 577 | — |
 | → Transferts | 949 | — |
 | → Arrêts volontaires | 45 | — |
-| → Décès | 813 | — |
+| → Décès | 814 | — |
 
 ---
 
@@ -270,7 +271,7 @@ Un patient est ACTIF si :
 
 ### Règles de confidentialité appliquées
 
-Aucune liste n'affiche les noms ou prénoms des patients. Le socle commun de toutes les listes :
+Aucune liste n'affiche les noms ou prénoms des patients. Socle commun de toutes les listes :
 
 ```
 N° Local | N° National | Sexe | Âge | Téléphone | Communautaire | Régime ARV
@@ -280,10 +281,21 @@ N° Local | N° National | Sexe | Âge | Téléphone | Communautaire | Régime A
 
 ```
 Attrition = Perdus de vue
-          + Transferts réels      (Transf=-1, TransfCentre ≠ mots-clés arrêt)
-          + Arrêts volontaires    (TransfCentre = "ARRET VOLONTAIRE" / "REFUS" / "refuse")
-          + INJOIGNABLE           → comptés dans PDV
-          + Décès                 (DECES=-1)
+          + Transferts réels
+          + Arrêts volontaires  (TransfCentre = "ARRET VOLONTAIRE" / "REFUS" / "refuse")
+          + INJOIGNABLE         → comptés dans PDV
+          + Décès
+```
+
+### Protocole Prochaine CV (vue_prochaine_cv)
+
+```
+Patient STABLE              → dernière CV + 12 mois
+Patient NON STABLE + CV ≤1000 → dernière CV + 6 mois
+Patient NON STABLE + CV >1000 → dernière CV + 4 mois
+Patient NE (0 CV)           → DateMiseTARV + 6 mois
+Patient NE (1 CV supprimée) → date CV + 6 mois
+Patient NE (1 CV non supp.) → date CV + 4 mois
 ```
 
 ---
