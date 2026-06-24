@@ -614,6 +614,123 @@ def creer_vue_pdv_periode(conn) -> None:
 
 
 # =============================================================
+# VUE : vue_prochaine_cv
+# =============================================================
+def creer_vue_prochaine_cv(conn) -> None:
+    """
+    Calcule la prochaine date de prélèvement CV par patient actif
+    selon la procédure Ko'Khoua :
+
+    STABLE              → dernière CV + 12 mois
+    NON STABLE + CV supprimée   → dernière CV + 6 mois
+    NON STABLE + CV non supp.   → dernière CV + 4 mois
+    NE (0 CV)           → DateMiseTARV + 6 mois
+    NE (1 CV supprimée) → date CV + 6 mois
+    NE (1 CV non supp.) → date CV + 4 mois
+    """
+    conn.execute("DROP VIEW IF EXISTS vue_prochaine_cv")
+    conn.execute("""
+        CREATE VIEW vue_prochaine_cv AS
+        WITH
+        -- Patients actifs
+        actifs AS (
+            SELECT
+                fa.NumInc, fa.NumNational, fa.Sexe_label, fa.Age,
+                p.Tel, fa.NomCommunautaire, fa.DernierRegime,
+                fa.DateProchainRdv, fa.DatePDV
+            FROM file_active fa
+            INNER JOIN TblDossPatient p ON fa.NumInc = p.NumInc
+            WHERE fa.StatutFile = 'Actif'
+        ),
+        -- Statut CV par patient
+        statut AS (
+            SELECT NumInc, StatutCV
+            FROM StatutCV_Patient
+        ),
+        -- Dernière et avant-dernière CV par patient
+        cv_ranked AS (
+            SELECT
+                Patient AS NumInc,
+                CVcopies,
+                DatePrelev,
+                CV_Statut,
+                ROW_NUMBER() OVER (
+                    PARTITION BY Patient ORDER BY DatePrelev DESC
+                ) AS rang
+            FROM TblChargesVirales
+            WHERE CVcopies IS NOT NULL
+        ),
+        derniere_cv AS (
+            SELECT NumInc, CVcopies AS cv1_copies,
+                   DatePrelev AS cv1_date, CV_Statut AS cv1_statut
+            FROM cv_ranked WHERE rang = 1
+        ),
+        -- DateMiseTARV pour les NE sans aucune CV
+        arv AS (
+            SELECT Patient AS NumInc, DateMiseTARV
+            FROM TblMiseEnRoute
+        )
+        SELECT
+            a.NumInc, a.NumNational, a.Sexe_label, a.Age,
+            a.Tel, a.NomCommunautaire, a.DernierRegime,
+            a.DateProchainRdv, a.DatePDV,
+            s.StatutCV,
+            dc.cv1_copies, dc.cv1_date, dc.cv1_statut,
+            arv.DateMiseTARV,
+
+            -- Calcul de la prochaine date CV
+            CASE
+                -- Stable → +12 mois depuis dernière CV
+                WHEN s.StatutCV = 'Stable'
+                    THEN CAST(dc.cv1_date AS DATE)
+                         + INTERVAL '12 months'
+
+                -- Non Stable, dernière CV supprimée → +6 mois
+                WHEN s.StatutCV = 'Non Stable'
+                     AND dc.cv1_statut = 'Supprimée'
+                    THEN CAST(dc.cv1_date AS DATE)
+                         + INTERVAL '6 months'
+
+                -- Non Stable, dernière CV non supprimée → +4 mois
+                WHEN s.StatutCV = 'Non Stable'
+                     AND dc.cv1_statut = 'Non supprimée'
+                    THEN CAST(dc.cv1_date AS DATE)
+                         + INTERVAL '4 months'
+
+                -- NE avec 1 CV supprimée → +6 mois
+                WHEN s.StatutCV = 'NE'
+                     AND dc.cv1_date IS NOT NULL
+                     AND dc.cv1_statut = 'Supprimée'
+                    THEN CAST(dc.cv1_date AS DATE)
+                         + INTERVAL '6 months'
+
+                -- NE avec 1 CV non supprimée → +4 mois
+                WHEN s.StatutCV = 'NE'
+                     AND dc.cv1_date IS NOT NULL
+                     AND dc.cv1_statut = 'Non supprimée'
+                    THEN CAST(dc.cv1_date AS DATE)
+                         + INTERVAL '4 months'
+
+                -- NE sans aucune CV → DateMiseTARV + 6 mois
+                WHEN s.StatutCV = 'NE'
+                     AND dc.cv1_date IS NULL
+                     AND arv.DateMiseTARV IS NOT NULL
+                    THEN CAST(arv.DateMiseTARV AS DATE)
+                         + INTERVAL '6 months'
+
+                ELSE NULL
+            END AS prochaine_cv_date
+
+        FROM actifs a
+        LEFT JOIN statut s ON a.NumInc = s.NumInc
+        LEFT JOIN derniere_cv dc ON a.NumInc = dc.NumInc
+        LEFT JOIN arv ON a.NumInc = arv.NumInc
+    """)
+
+    nb = conn.execute("SELECT COUNT(*) FROM vue_prochaine_cv").fetchone()[0]
+
+
+# =============================================================
 # VUE : cascade_95_95_95
 # =============================================================
 def creer_vue_cascade(conn) -> None:
@@ -822,6 +939,7 @@ def charger_dans_duckdb() -> None:
     creer_vue_pdv_periode(conn)
     creer_vue_kpis(conn)
     creer_vue_cascade(conn)
+    creer_vue_prochaine_cv(conn)
 
     # --- Validation ---
     valider_base(conn)

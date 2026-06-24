@@ -37,6 +37,71 @@ COLONNES_SOCLE = {
 }
 
 LISTINGS_STATIQUES = {
+    "File active complète": {
+        "table": """
+            SELECT
+                fa.NumInc, fa.NumNational, fa.Sexe_label, fa.Age,
+                p.Tel, fa.NomCommunautaire, fa.DernierRegime,
+                fa.DateProchainRdv, fa.DatePDV,
+                p.DateAdmi, p.DateNaiss,
+                r.DateRegime, r.JOURS,
+                m.DateMiseTARV
+            FROM file_active fa
+            INNER JOIN TblDossPatient p ON fa.NumInc = p.NumInc
+            LEFT JOIN (
+                SELECT NumPatient, DateRegime, JOURS
+                FROM TblRegime WHERE Derniere_Dispensation = TRUE
+            ) r ON p.NumNational = r.NumPatient
+            LEFT JOIN TblMiseEnRoute m ON fa.NumInc = m.Patient
+            WHERE fa.StatutFile = 'Actif'
+            ORDER BY fa.NumInc
+        """,
+        "mode": "sql_direct",
+        "renommage": {
+            'NumInc': 'N° Local', 'NumNational': 'N° National',
+            'Sexe_label': 'Sexe', 'Age': 'Âge', 'Tel': 'Téléphone',
+            'NomCommunautaire': 'Communautaire', 'DernierRegime': 'Régime ARV',
+            'DateProchainRdv': 'Prochain RDV', 'DatePDV': 'Date PDV limite',
+            'DateAdmi': 'Date admission', 'DateNaiss': 'Date naissance',
+            'DateRegime': 'Dernière dispensation', 'JOURS': 'Jours',
+            'DateMiseTARV': 'Date mise sous ARV'
+        },
+        "description": "Liste complète des patients actifs dans la file Ko'Khoua."
+    },
+    "Attrition — 12 derniers mois": {
+        "table": """
+            SELECT
+                a.NumInc, a.NumNational, a.Sexe_label, a.Age,
+                a.Tel, a.NomCommunautaire, a.DernierRegime,
+                a.categorie_attrition,
+                COALESCE(
+                    TRY_CAST(a.TransfDate AS DATE),
+                    TRY_CAST(a.DecesDate AS DATE),
+                    TRY_CAST(a.DatePDV AS DATE)
+                ) AS date_sortie,
+                a.TransfCentre, a.DecesDate,
+                p.DateAdmi
+            FROM attrition a
+            INNER JOIN TblDossPatient p ON a.NumInc = p.NumInc
+            WHERE a.categorie_attrition IS NOT NULL
+              AND (
+                TRY_CAST(a.TransfDate AS DATE) >= (CURRENT_DATE - INTERVAL '12 months')
+                OR TRY_CAST(a.DecesDate AS DATE) >= (CURRENT_DATE - INTERVAL '12 months')
+                OR TRY_CAST(a.DatePDV AS DATE) >= (CURRENT_DATE - INTERVAL '12 months')
+              )
+            ORDER BY date_sortie DESC
+        """,
+        "mode": "sql_direct",
+        "renommage": {
+            'NumInc': 'N° Local', 'NumNational': 'N° National',
+            'Sexe_label': 'Sexe', 'Age': 'Âge', 'Tel': 'Téléphone',
+            'NomCommunautaire': 'Communautaire', 'DernierRegime': 'Régime ARV',
+            'categorie_attrition': 'Catégorie', 'date_sortie': 'Date sortie',
+            'TransfCentre': 'Centre transfert', 'DecesDate': 'Date décès',
+            'DateAdmi': 'Date admission'
+        },
+        "description": "Patients sortis de la file active (PDV + Transferts + Arrêts + Décès) au cours des 12 derniers mois."
+    },
     "À risque fin de mois (RDV ARV)": {
         "table": "a_risque_fin_mois",
         "colonnes_extra": {
@@ -188,7 +253,8 @@ def render():
     mois_labels = [m["label"] for m in mois_options]
 
     tous_listings = list(LISTINGS_STATIQUES.keys()) + \
-                    [f"RDV ARV attendus — {m}" for m in mois_labels]
+                    [f"RDV ARV attendus — {m}" for m in mois_labels] + \
+                    [f"CV attendus — {m}" for m in mois_labels]
 
     choix = st.selectbox("Sélectionner un listing", tous_listings)
 
@@ -233,19 +299,62 @@ def render():
                 f"{mois_choisi['label']}. À contacter pour confirmation."
             )
 
+    # ── Listings CV attendus par mois ─────────────────────────
+    elif choix.startswith("CV attendus"):
+        mois_choisi = next(
+            (m for m in mois_options if m["label"] in choix), None
+        )
+        if mois_choisi:
+            df = q(f"""
+                SELECT
+                    NumInc, NumNational, Sexe_label, Age,
+                    Tel, NomCommunautaire, DernierRegime,
+                    StatutCV, cv1_date AS date_derniere_cv,
+                    cv1_copies AS derniere_cv_copies,
+                    DateMiseTARV, prochaine_cv_date
+                FROM vue_prochaine_cv
+                WHERE prochaine_cv_date IS NOT NULL
+                  AND prochaine_cv_date
+                      BETWEEN DATE '{mois_choisi["debut"]}'
+                      AND DATE '{mois_choisi["fin"]}'
+                ORDER BY prochaine_cv_date ASC
+            """)
+            df_display = df.rename(columns={
+                'NumInc': 'N° Local', 'NumNational': 'N° National',
+                'Sexe_label': 'Sexe', 'Age': 'Âge', 'Tel': 'Téléphone',
+                'NomCommunautaire': 'Communautaire', 'DernierRegime': 'Régime ARV',
+                'StatutCV': 'Statut CV', 'date_derniere_cv': 'Date dernière CV',
+                'derniere_cv_copies': 'Dernière CV (copies)',
+                'DateMiseTARV': 'Date mise sous ARV',
+                'prochaine_cv_date': 'Prochaine CV prévue'
+            })
+            afficher_listing(
+                df_display,
+                f"CV attendus — {mois_choisi['label']}",
+                f"Patients actifs dont la prochaine charge virale est prévue "
+                f"en {mois_choisi['label']} selon la procédure Ko'Khoua."
+            )
+
     # ── Listings statiques ────────────────────────────────────
     else:
         config = LISTINGS_STATIQUES[choix]
-        colonnes_extra = list(config["colonnes_extra"].keys())
-        toutes_colonnes = list(COLONNES_SOCLE.keys()) + colonnes_extra
-        filtre = config.get("filtre", "")
+        mode = config.get("mode", "table")
 
-        sql = f"""
-            SELECT {", ".join(toutes_colonnes)}
-            FROM {config['table']}
-            {filtre}
-        """
-        df = q(sql)
-        df_display = df.rename(columns={**COLONNES_SOCLE, **config["colonnes_extra"]})
+        if mode == "sql_direct":
+            df = q(config["table"])
+            df_display = df.rename(columns=config.get("renommage", {}))
+        else:
+            colonnes_extra = list(config["colonnes_extra"].keys())
+            toutes_colonnes = list(COLONNES_SOCLE.keys()) + colonnes_extra
+            filtre = config.get("filtre", "")
+            sql = f"""
+                SELECT {", ".join(toutes_colonnes)}
+                FROM {config['table']}
+                {filtre}
+            """
+            df = q(sql)
+            df_display = df.rename(
+                columns={**COLONNES_SOCLE, **config["colonnes_extra"]}
+            )
 
         afficher_listing(df_display, choix, config["description"])

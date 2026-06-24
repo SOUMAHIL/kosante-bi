@@ -73,35 +73,61 @@ st.markdown("""
         font-family: 'Inter', sans-serif;
     }
 
-    [data-testid="stSidebar"] .stRadio [role="radiogroup"] {
-        gap: 2px;
+    /* ── Navigation — boutons pleine largeur, sans puce ── */
+    [data-testid="stSidebar"] .stButton {
+        width: 100% !important;
     }
-    [data-testid="stSidebar"] .stRadio label {
+    [data-testid="stSidebar"] .stButton > button {
+        background: transparent !important;
+        color: rgba(255,255,255,0.78) !important;
+        border: none !important;
+        border-left: 3px solid transparent !important;
+        border-radius: 6px !important;
+        border-top-left-radius: 0 !important;
+        border-bottom-left-radius: 0 !important;
+        font-family: 'IBM Plex Mono', monospace !important;
         font-size: 13.5px !important;
         font-weight: 500 !important;
-        padding: 9px 10px 9px 14px !important;
-        border-radius: 6px;
-        border-left: 3px solid transparent;
-        transition: background 0.15s ease, border-color 0.15s ease;
-        width: 100%;
-        font-family: 'IBM Plex Mono', monospace;
-        letter-spacing: 0.2px;
+        padding: 8px 12px !important;
+        width: 100% !important;
+        box-shadow: none !important;
+        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: flex-start !important;
+        align-items: center !important;
+        text-align: left !important;
+        line-height: 1.4 !important;
     }
-    [data-testid="stSidebar"] .stRadio label p {
-        font-family: 'Inter', sans-serif;
+    [data-testid="stSidebar"] .stButton > button > div {
+        width: 100% !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
     }
-    [data-testid="stSidebar"] .stRadio label:hover {
-        background: rgba(255,255,255,0.06);
-        border-left-color: rgba(201,154,59,0.5);
-        cursor: pointer;
+    [data-testid="stSidebar"] .stButton > button p {
+        font-family: 'Inter', sans-serif !important;
+        text-align: left !important;
+        width: 100% !important;
+        margin: 0 !important;
     }
-    [data-testid="stSidebar"] .stRadio div[role="radiogroup"] > label:has(input:checked) {
-        background: rgba(255,255,255,0.09);
-        border-left-color: var(--ks-gold);
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background: rgba(255,255,255,0.07) !important;
+        border-left-color: rgba(201,154,59,0.5) !important;
+        color: #fff !important;
     }
-    [data-testid="stSidebar"] .stRadio div[role="radiogroup"] > label:has(input:checked) p {
+    [data-testid="stSidebar"] .stButton > button:focus:not(:active) {
+        background: rgba(255,255,255,0.07) !important;
+        color: #fff !important;
+    }
+    /* Item actif */
+    [data-testid="stSidebar"] .stButton > button[kind="primary"] {
+        background: rgba(255,255,255,0.10) !important;
+        border-left-color: var(--ks-gold) !important;
         color: #fff !important;
         font-weight: 600 !important;
+    }
+    [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+        background: rgba(255,255,255,0.13) !important;
     }
 
     /* ── Background principal — papier ── */
@@ -130,7 +156,7 @@ st.markdown("""
     footer {visibility: hidden;}
     header[data-testid="stHeader"] {
         background: transparent;
-        height: 2.5rem;
+        height: 1rem;
     }
     [data-testid="stToolbar"] {visibility: hidden;}
 
@@ -143,17 +169,47 @@ st.markdown("""
     }
 
     /* ── Compacter la sidebar (logo, nav, bouton remontent) ── */
+    [data-testid="stSidebar"] {
+        padding-top: 0 !important;
+    }
+    [data-testid="stSidebar"] > div {
+        padding-top: 0 !important;
+    }
     [data-testid="stSidebar"] > div:first-child {
-        padding-top: 1rem !important;
+        padding-top: 0.5rem !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] {
+        padding-top: 0.2rem !important;
+        padding-left: 1.2rem !important;
+        padding-right: 1.2rem !important;
     }
     [data-testid="stSidebar"] div[data-testid="stVerticalBlock"] {
-        gap: 0.3rem !important;
+        gap: 0.15rem !important;
     }
     [data-testid="stSidebar"] div.element-container {
         margin-bottom: 0 !important;
     }
     [data-testid="stSidebar"] hr {
-        margin: 0.6rem 0 !important;
+        margin: 0.5rem 0 !important;
+        border-color: rgba(255,255,255,0.12) !important;
+    }
+    /* Bouton "Rafraîchir" — distinct de la nav (plein, doré au hover) */
+    [data-testid="stSidebar"] div[data-testid="stButton"]:has(button:not([kind="primary"])) + div,
+    .ks-refresh-btn .stButton button {
+        background-color: var(--ks-forest-2) !important;
+        border: 1px solid rgba(255,255,255,0.15) !important;
+        border-left: 1px solid rgba(255,255,255,0.15) !important;
+        justify-content: center !important;
+        text-align: center !important;
+        font-weight: 600 !important;
+    }
+    .ks-refresh-btn .stButton button p {
+        text-align: center !important;
+    }
+    .ks-refresh-btn .stButton button:hover {
+        background-color: var(--ks-gold) !important;
+        color: var(--ks-ink) !important;
+        border-color: var(--ks-gold) !important;
     }
 
     /* ── Titres ── */
@@ -393,20 +449,33 @@ def query(_conn, sql: str):
 # SIDEBAR — Navigation
 # =============================================================
 def render_sidebar():
+    # État de la page active (persiste entre les reruns)
+    if "page_active" not in st.session_state:
+        st.session_state.page_active = "Vue d'ensemble"
+
+    MENU = [
+        ("01", "Vue d'ensemble",  "Vue d'ensemble",   "⊞"),
+        ("02", "Dépistage CDV",   "Dépistage CDV",    "🔬"),
+        ("03", "Fichier actif",   "Fichier actif",    "👥"),
+        ("04", "Performances",    "Performances cliniques", "📊"),
+        ("05", "Attrition",       "Attrition",         "⚠"),
+        ("06", "Listing",         "Listing",            "🖨"),
+    ]
+
     with st.sidebar:
-        # Logo
+        # Logo — collé en haut, zéro espace mort
         st.markdown("""
-        <div style="padding: 8px 0 20px;">
+        <div style="padding: 2px 0 10px;">
             <div style="display:flex; align-items:center; gap:10px;">
-                <div style="background:#C99A3B; width:36px; height:36px;
-                     border-radius:6px; display:flex; align-items:center;
-                     justify-content:center; font-size:18px;
-                     border:1px solid rgba(255,255,255,0.2);">🏥</div>
+                <div style="background:#C99A3B; width:34px; height:34px;
+                     border-radius:7px; display:flex; align-items:center;
+                     justify-content:center; font-size:16px;
+                     border:1px solid rgba(255,255,255,0.2); flex-shrink:0;">🏥</div>
                 <div>
                     <div style="font-family:'Space Grotesk',sans-serif;
-                         font-size:15px; font-weight:600;
+                         font-size:14.5px; font-weight:600; line-height:1.2;
                          color:white; letter-spacing:0.3px;">KoSanté BI</div>
-                    <div style="font-size:10px; color:rgba(255,255,255,0.45);
+                    <div style="font-size:9.5px; color:rgba(255,255,255,0.45);
                          letter-spacing:1px;">KO'KHOUA ONG</div>
                 </div>
             </div>
@@ -415,52 +484,98 @@ def render_sidebar():
 
         st.markdown("---")
 
-        # Navigation
         st.markdown(
             '<div style="font-size:9px; font-weight:600; '
             'color:rgba(255,255,255,0.3); letter-spacing:1.2px; '
-            'text-transform:uppercase; margin-bottom:8px;">'
+            'text-transform:uppercase; margin-bottom:6px;">'
             'TABLEAU DE BORD</div>',
             unsafe_allow_html=True
         )
 
-        page = st.radio(
-            label="Navigation",
-            options=[
-                "01 · Vue d'ensemble",
-                "02 · Dépistage CDV",
-                "03 · Fichier actif",
-                "04 · Performances cliniques",
-                "05 · Attrition",
-                "06 · Listing"
-            ],
-            label_visibility="collapsed"
-        )
+        for numero, label_affiche, label_route, icone in MENU:
+            est_actif = st.session_state.page_active == label_route
+            if st.button(
+                f"{icone}   {numero} · {label_affiche}",
+                key=f"nav_{numero}",
+                use_container_width=True,
+                type="primary" if est_actif else "secondary"
+            ):
+                st.session_state.page_active = label_route
+                st.rerun()
 
         st.markdown("---")
 
-        # Bouton rafraîchir
-        if st.button("🔄 Rafraîchir les données"):
+        # Bouton rafraîchir — style distinct
+        st.markdown('<div class="ks-refresh-btn">', unsafe_allow_html=True)
+        if st.button("🔄  Rafraîchir les données", use_container_width=True):
+            import subprocess
+            import sys
+            root = Path(__file__).parent.parent
+
+            # Marqueurs de succès attendus dans le log de chaque script
+            # (certains scripts pyodbc crashent en interne APRES avoir
+            #  terminé leur travail — à la fermeture de connexion ODBC.
+            #  Le returncode seul n'est donc pas fiable ; on vérifie aussi
+            #  que le message de succès est bien présent dans la sortie.)
+            etapes = [
+                ("Extraction",     root / "etl" / "extract.py",   "Extraction complète"),
+                ("Transformation", root / "etl" / "transform.py", "Transformation complète"),
+                ("Chargement",     root / "etl" / "load.py",      "DuckDB chargé"),
+            ]
+
+            erreur_survenue = False
             with st.spinner("Mise à jour en cours..."):
-                import subprocess
-                import sys
-                root = Path(__file__).parent.parent
-                subprocess.run(
-                    [sys.executable, str(root / "etl" / "extract.py")],
-                    cwd=str(root)
-                )
-                subprocess.run(
-                    [sys.executable, str(root / "etl" / "transform.py")],
-                    cwd=str(root)
-                )
-                subprocess.run(
-                    [sys.executable, str(root / "etl" / "load.py")],
-                    cwd=str(root)
-                )
+                for nom_etape, script, marqueur_succes in etapes:
+                    # Avant de lancer load.py, on doit fermer la connexion
+                    # DuckDB que Streamlit garde ouverte en cache — sinon
+                    # Windows refuse que load.py supprime/recrée le fichier
+                    # (PermissionError: fichier utilisé par un autre processus)
+                    if nom_etape == "Chargement":
+                        try:
+                            get_connection().close()
+                        except Exception:
+                            pass
+                        st.cache_resource.clear()
+
+                    try:
+                        resultat = subprocess.run(
+                            [sys.executable, str(script)],
+                            cwd=str(root),
+                            capture_output=True,
+                            text=True,
+                            timeout=600
+                        )
+                        sortie_complete = (resultat.stdout or "") + (resultat.stderr or "")
+                        succes_detecte = marqueur_succes in sortie_complete
+
+                        if resultat.returncode != 0 and not succes_detecte:
+                            erreur_survenue = True
+                            st.error(
+                                f"❌ Erreur durant l'étape « {nom_etape} »"
+                            )
+                            with st.expander("Détails de l'erreur"):
+                                st.code(resultat.stderr or resultat.stdout)
+                            break
+                        elif resultat.returncode != 0 and succes_detecte:
+                            # Le script a réussi son travail mais a crashé
+                            # juste après (ex: fermeture connexion ODBC).
+                            # On continue sans bloquer l'utilisateur.
+                            pass
+                    except subprocess.TimeoutExpired:
+                        erreur_survenue = True
+                        st.error(f"❌ Timeout durant l'étape « {nom_etape} »")
+                        break
+                    except Exception as e:
+                        erreur_survenue = True
+                        st.error(f"❌ Erreur inattendue : {e}")
+                        break
+
+            if not erreur_survenue:
                 st.cache_data.clear()
                 st.cache_resource.clear()
-            st.success("✅ Données mises à jour !")
-            st.rerun()
+                st.success("✅ Données mises à jour !")
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # Dernière mise à jour
         try:
@@ -479,7 +594,7 @@ def render_sidebar():
         except Exception:
             pass
 
-    return page
+    return st.session_state.page_active
 
 
 # =============================================================
@@ -488,25 +603,24 @@ def render_sidebar():
 def main():
     page = render_sidebar()
 
-    if "Vue d'ensemble" in page:
+    if page == "Vue d'ensemble":
         from views.vue_ensemble import render
         render()
-    elif "Dépistage" in page:
+    elif page == "Dépistage CDV":
         from views.depistage import render
         render()
-    elif "Fichier actif" in page:
+    elif page == "Fichier actif":
         from views.file_active import render
         render()
-    elif "Performances" in page:
+    elif page == "Performances cliniques":
         from views.performances import render
         render()
-    elif "Attrition" in page:
+    elif page == "Attrition":
         from views.attrition import render
         render()
-    elif "Listing" in page:
+    elif page == "Listing":
         from views.listing import render
         render()
-
 
 if __name__ == "__main__":
     main()

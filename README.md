@@ -170,7 +170,7 @@ Double-clic sur lancer_dashboard.bat
 | **Phase 1** | Setup · Extraction Access → CSV · Audit qualité | ✅ Terminée |
 | **Phase 2** | Transformation · Nettoyage · Schéma DuckDB | ✅ Terminée |
 | **Phase 3** | Dashboard Streamlit · 6 menus · Listings | ✅ Terminée |
-| **Phase 4** | Finalisation · Déploiement | ⏳ À venir |
+| **Phase 4** | Finalisation · Déploiement | 🔄 En cours |
 
 ---
 
@@ -266,7 +266,7 @@ Un patient est ACTIF si :
 | **03 · Fichier actif** | Par communautaire · Régimes ARV · PDV fin de mois · RDV manqués |
 | **04 · Performances cliniques** | Statut CV · Évolution CV 6 mois · Non Stables · NE |
 | **05 · Attrition** | Filtre période · Répartition · Rétention ARV 6 cohortes · PDV listing |
-| **06 · Listing** | Export CSV/Excel · RDV ARV par mois (4 mois à venir) · 5 listings anonymisés |
+| **06 · Listing** | Export CSV/Excel · 13 listings anonymisés · RDV ARV et CV par mois (4 mois à venir) |
 
 ### Règles de confidentialité appliquées
 
