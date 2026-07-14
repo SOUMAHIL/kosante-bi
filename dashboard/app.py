@@ -476,7 +476,7 @@ def render_sidebar():
                          font-size:14.5px; font-weight:600; line-height:1.2;
                          color:white; letter-spacing:0.3px;">KoSanté BI</div>
                     <div style="font-size:9.5px; color:rgba(255,255,255,0.45);
-                         letter-spacing:1px;">KO'KHOUA ONG</div>
+                         letter-spacing:1px;">ONG</div>
                 </div>
             </div>
         </div>

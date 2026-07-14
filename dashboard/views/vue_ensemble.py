@@ -212,7 +212,7 @@ def render():
             Tableau de bord — Suivi PVVIH
         </h2>
         <p style="font-size:13px; color:#6B7A93; margin:0;">
-            Ko'Khoua ONG · Abidjan, Côte d'Ivoire · Données au jour
+            ONG · Abidjan, Côte d'Ivoire · Données au jour
         </p>
     </div>
     """, unsafe_allow_html=True)
